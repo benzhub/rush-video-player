@@ -82,9 +82,9 @@ struct SubtitleSettings: View {
 struct AISettings: View {
     @AppStorage(SettingKey.aiModel) private var model = ClaudeClient.defaultModel
     @AppStorage(SettingKey.aiEffort) private var effort = "medium"
-    @ViewState private var apiKey = KeychainStore.get(.anthropicAPIKey) ?? ""
-    @ViewState private var testResult: String?
-    @ViewState private var testing = false
+    @State private var apiKey = KeychainStore.get(.anthropicAPIKey) ?? ""
+    @State private var testResult: String?
+    @State private var testing = false
 
     var body: some View {
         Form {
@@ -135,9 +135,9 @@ struct AISettings: View {
 struct NotionSettings: View {
     @AppStorage(SettingKey.notionParent) private var parent = ""
     @AppStorage(SettingKey.autoNotion) private var autoNotion = false
-    @ViewState private var token = KeychainStore.get(.notionToken) ?? ""
-    @ViewState private var testResult: String?
-    @ViewState private var testing = false
+    @State private var token = KeychainStore.get(.notionToken) ?? ""
+    @State private var testResult: String?
+    @State private var testing = false
 
     var body: some View {
         Form {

@@ -4,7 +4,7 @@ import VideoPlayerCore
 struct ControlBar: View {
     @EnvironmentObject var player: PlayerModel
     @EnvironmentObject var ui: UIState
-    @ViewState private var scrubbing: Double?
+    @State private var scrubbing: Double?
 
     var body: some View {
         VStack(spacing: 6) {

@@ -12,8 +12,8 @@ struct ContentView: View {
     @EnvironmentObject var player: PlayerModel
     @EnvironmentObject var ui: UIState
     @EnvironmentObject var assistant: AIAssistant
-    @ViewState private var hideTask: Task<Void, Never>?
-    @ViewState private var dropTargeted = false
+    @State private var hideTask: Task<Void, Never>?
+    @State private var dropTargeted = false
 
     var body: some View {
         HStack(spacing: 0) {

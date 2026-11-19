@@ -3,7 +3,7 @@ import VideoPlayerCore
 
 struct PlaylistSidebar: View {
     @EnvironmentObject var player: PlayerModel
-    @ViewState private var tab = Tab.playlist
+    @State private var tab = Tab.playlist
 
     enum Tab: String, CaseIterable {
         case playlist = "播放清單"

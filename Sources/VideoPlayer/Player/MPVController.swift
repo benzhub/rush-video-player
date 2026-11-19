@@ -81,9 +81,9 @@ final class MPVController {
             ("keep-open", "yes"),
             // 字幕由 SubtitleFinder 自己找，避免和 mpv 內建比對重複載入
             ("sub-auto", "no"),
-            ("sub-font", "PingFang TC"),
+            ("sub-font", "Heiti TC"),
             ("sub-font-size", "46"),
-            ("osd-font", "PingFang TC"),
+            ("osd-font", "Heiti TC"),
             ("osd-font-size", "36"),
             ("osd-duration", "1200"),
             ("input-default-bindings", "no"),
@@ -96,6 +96,10 @@ final class MPVController {
         ]
         for (name, value) in options {
             check(mpv_set_option_string(mpv, name, value))
+        }
+        // RVP_MPV_LOG=<path> 時把 mpv/libass 的完整 log 寫到檔案
+        if let logFile = ProcessInfo.processInfo.environment["RVP_MPV_LOG"] {
+            check(mpv_set_option_string(mpv, "log-file", logFile))
         }
         check(mpv_initialize(mpv))
 

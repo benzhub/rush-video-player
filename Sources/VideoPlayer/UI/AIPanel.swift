@@ -10,7 +10,7 @@ struct AIPanel: View {
         VStack(spacing: 0) {
             header
             Divider()
-            if !assistant.hasAPIKey {
+            if !assistant.isConfigured {
                 setupPrompt
             } else {
                 conversation
@@ -26,6 +26,10 @@ struct AIPanel: View {
             HStack {
                 Label("AI 學習助手", systemImage: "sparkles").font(.headline)
                 Spacer()
+                Button(assistant.provider.shortName) { openSettings() }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                    .help("AI 來源（到設定中切換）")
                 Button { assistant.reset() } label: { Image(systemName: "arrow.counterclockwise") }
                     .buttonStyle(.borderless)
                     .help("開始新對話")
@@ -78,6 +82,12 @@ struct AIPanel: View {
             .onChange(of: assistant.items) {
                 proxy.scrollTo("bottom", anchor: .bottom)
             }
+            // 回覆中的時間戳可以點擊跳轉
+            .environment(\.openURL, OpenURLAction { url in
+                guard url.scheme == MarkdownText.seekScheme, let seconds = Double(url.host() ?? "") else { return .systemAction }
+                player.seek(to: seconds)
+                return .handled
+            })
         }
     }
 
@@ -104,9 +114,11 @@ struct AIPanel: View {
         VStack(spacing: 12) {
             Spacer()
             Image(systemName: "key").font(.largeTitle)
-            Text("請先設定 Anthropic API Key").font(.headline)
-            Text("AI 學習助手使用 Claude 根據字幕整理重點、回答問題，並可以把筆記存到 Notion。")
+            Text("請先設定 AI 來源").font(.headline)
+            Text(AIAssistant.setupHint(for: assistant.provider))
                 .multilineTextAlignment(.center).font(.callout).foregroundStyle(.secondary)
+            Text("可以使用 Claude CLI、Codex CLI（沿用訂閱登入），或 Anthropic／OpenAI API Key。")
+                .multilineTextAlignment(.center).font(.caption).foregroundStyle(.secondary)
             Button("開啟設定") { openSettings() }
             Spacer()
         }
@@ -138,8 +150,10 @@ struct ChatBubble: View {
 struct MarkdownText: View {
     let lines: [String]
 
+    static let seekScheme = "rvp-seek"
+
     init(_ text: String) {
-        lines = text.components(separatedBy: "\n")
+        lines = SeekDirective.stripForDisplay(text).components(separatedBy: "\n")
     }
 
     var body: some View {
@@ -176,6 +190,16 @@ struct MarkdownText: View {
 
     private func inline(_ s: String) -> Text {
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        return Text((try? AttributedString(markdown: s, options: options)) ?? AttributedString(s))
+        let linked = Self.linkTimestamps(s)
+        return Text((try? AttributedString(markdown: linked, options: options)) ?? AttributedString(s))
+    }
+
+    /// `[1:23]`、`[1:02:03]` → 可點擊的跳轉連結
+    static func linkTimestamps(_ s: String) -> String {
+        s.replacing(#/\[(?:(\d{1,2}):)?(\d{1,2}):(\d{2})\](?!\()/#) { m in
+            let h = m.1.flatMap { Double($0) } ?? 0
+            let seconds = h * 3600 + (Double(m.2) ?? 0) * 60 + (Double(m.3) ?? 0)
+            return "[\(m.0.dropFirst().dropLast())](\(seekScheme)://\(Int(seconds)))"
+        }
     }
 }

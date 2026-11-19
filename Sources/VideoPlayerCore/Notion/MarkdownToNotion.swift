@@ -132,7 +132,8 @@ public enum MarkdownToNotion {
             if rest.hasPrefix("`") {
                 flush(); style.code.toggle(); i = text.index(after: i); continue
             }
-            if !style.code, rest.hasPrefix("*") || (rest.hasPrefix("_") && isWordBoundary(text, i)) {
+            if !style.code, rest.hasPrefix("*") || (rest.hasPrefix("_") && isWordBoundary(text, i)),
+               canToggleItalic(text, i, closing: style.italic) {
                 flush(); style.italic.toggle(); i = text.index(after: i); continue
             }
             if !style.code, let m = rest.prefixMatch(of: /\[([^\]]+)\]\(([^)\s]+)\)/) {
@@ -147,6 +148,15 @@ public enum MarkdownToNotion {
         }
         flush()
         return result
+    }
+
+    /// 開始斜體的符號後面不能是空白，結束的符號前面不能是空白（`2 * 3` 的 `*` 是普通字元）
+    private static func canToggleItalic(_ text: String, _ i: String.Index, closing: Bool) -> Bool {
+        if closing {
+            return i > text.startIndex && !text[text.index(before: i)].isWhitespace
+        }
+        let next = text.index(after: i)
+        return next < text.endIndex && !text[next].isWhitespace
     }
 
     /// `_` 在英文單字中間（snake_case）不當作斜體

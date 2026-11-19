@@ -74,6 +74,10 @@ struct NotionTests {
         #expect(NotionID.parse(id) == expected)
         #expect(NotionID.parse(expected) == expected)
         #expect(NotionID.parse("https://www.notion.so/myteam/My-Notes-\(id)?v=fedcba9876543210fedcba9876543210") == expected)
+        #expect(NotionID.parse("https://app.notion.com/p/\(id)") == expected)
+        // 標題結尾是數字或 a–f 時不能混進 ID
+        #expect(NotionID.parse("https://www.notion.so/01-\(id)") == expected)
+        #expect(NotionID.parse("https://www.notion.so/Cafe-ABC-\(id)") == expected)
         #expect(NotionID.parse("not an id") == nil)
     }
 
@@ -112,6 +116,13 @@ struct NotionTests {
         #expect(rich.count == 3)
         #expect(rich[1]["text"]?["link"]?["url"] == "https://example.com")
         #expect(rich[2]["text"]?["content"] == " 的 snake_case_name")
+    }
+
+    @Test func keepsLoneAsterisks() {
+        let rich = MarkdownToNotion.richText("return n * factorial(n - 1) 和 *斜體*")
+        #expect(rich.map { $0["text"]?["content"]?.stringValue ?? "" } == ["return n * factorial(n - 1) 和 ", "斜體"])
+        #expect(rich[0]["annotations"] == nil)
+        #expect(rich[1]["annotations"]?["italic"] == true)
     }
 
     @Test func splitsLongText() {

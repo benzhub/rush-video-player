@@ -68,7 +68,8 @@ RVP_CLI_TESTS=claude,codex swift test --filter CLISessionIntegration   # 實際�
 | ⌘L | 播放清單與書籤 |
 | ⌘J | AI 學習助手 |
 | ⌥⌘P | 子母畫面（右下角置頂小視窗） |
-| ⇧⌘S | 截圖（存到桌面） |
+| ⇧⌘S | 截圖到 Notion |
+| ⌥⇧⌘S | 截圖並用紅筆標註後上傳到 Notion |
 | ⌘O / ⇧⌘O | 開啟／加入播放清單 |
 
 拖曳影片或資料夾到視窗即可開啟；拖曳字幕檔即可載入字幕。
@@ -101,6 +102,14 @@ RVP_CLI_TESTS=claude,codex swift test --filter CLISessionIntegration   # 實際�
 3. 「設定 → Notion」貼上 Token 和頁面網址，按「測試連線」
 4. 可以開啟「看完一集時自動產生學習筆記並存到 Notion」
 
+### 截圖到 Notion
+
+AI 助手面板上的「截圖」按鈕（或 ⇧⌘S）會把目前畫面（含字幕）上傳到 Notion；按旁邊的選單（或 ⌥⇧⌘S）可以先暫停、用紅筆標註，再上傳。
+
+- 每部影片對應一個 Notion 頁面：截圖和學習筆記都放在同一頁，沒有頁面時會在設定的位置新建
+- 每張截圖附上時間戳和當下字幕作為說明
+- 截圖只在記憶體中處理，不會在桌面或暫存資料夾留下任何檔案
+
 ## 專案結構
 
 ```
@@ -114,6 +123,7 @@ Sources/
   VideoPlayer/         # SwiftUI App
     Player/            # libmpv 包裝、播放狀態
     AI/                # AI 助手狀態與工具
+    Notion/            # 截圖上傳到 Notion
     UI/                # 畫面
     App/               # App 進入點、選單、快捷鍵、設定
 Tests/                 # swift-testing 單元測試

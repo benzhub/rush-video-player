@@ -23,7 +23,15 @@
 
 ```bash
 swift run VideoPlayer /path/to/video.mkv   # 直接執行
-./scripts/test.sh                          # 單元測試（只有 Command Line Tools 時也能跑）
+swift test                                 # 單元測試（只有 Command Line Tools 時改用 ./scripts/test.sh）
+```
+
+金鑰可以放在 `.env.local`（參考 `.env.example`，此檔不會被提交），開發時載入成環境變數：
+
+```bash
+set -a; . ./.env.local; set +a
+swift run VideoPlayer                      # App 會讀取 ANTHROPIC_API_KEY / NOTION_TOKEN
+swift test --filter NotionIntegration      # 對真實 Notion 建立測試頁面（需要 NOTION_TEST_PARENTS）
 ```
 
 ## 字幕自動載入規則

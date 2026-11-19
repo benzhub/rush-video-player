@@ -32,7 +32,7 @@ final class AIAssistant: ObservableObject {
 
     var provider: AIProviderKind { AppSettings.aiProvider }
     var isConfigured: Bool { AppSettings.isAvailable(provider) }
-    var hasNotion: Bool { !AppSettings.notionToken.isEmpty && !AppSettings.notionParent.isEmpty }
+    var hasNotion: Bool { AppSettings.hasNotion }
 
     /// 最後一則 AI 回覆，用來存到 Notion
     var lastAnswer: String? {
@@ -246,20 +246,21 @@ final class AIAssistant: ObservableObject {
             title: title.isEmpty ? player.title : title,
             markdown: markdown,
             sourceInfo: Self.sourceInfo(title: player.title, duration: player.duration))
-        if let video { player.setNotionPage(url, for: video) }
+        if let video { player.setNotionPage(url, for: video, hasNotes: true) }
         lastNotionURL = url
         return url
     }
 
-    private static func sourceInfo(title: String, duration: Double) -> String {
+    static func sourceInfo(title: String, duration: Double) -> String {
         let date = Date().formatted(date: .abbreviated, time: .shortened)
         return "影片：\(title)（\(TimeFormat.clock(duration))）· 由 Rush Video Player 於 \(date) 產生"
     }
 
-    /// 一集看完時自動產生筆記並存到 Notion（設定中開啟時）
+    /// 一集看完時自動產生筆記並存到 Notion（設定中開啟時）。
+    /// 已經有截圖頁面時，筆記附加在同一頁後面。
     private func autoSaveNotes(for video: URL) {
-        guard AppSettings.autoNotion, isConfigured, hasNotion, !player.transcript.isEmpty,
-              player.record(for: video).notionPageURL == nil else { return }
+        let record = player.record(for: video)
+        guard AppSettings.autoNotion, isConfigured, hasNotion, !player.transcript.isEmpty, !record.hasNotionNotes else { return }
         let context = self.context()
         let title = player.title
         let duration = player.duration
@@ -268,12 +269,20 @@ final class AIAssistant: ObservableObject {
             do {
                 // 用一段全新的對話產生筆記，不影響面板上的對話
                 let markdown = try await AppSettings.makeSession(context: context, tools: []).send(StudyPrompts.notes) { _ in }
-                let url = try await NotionClient(token: AppSettings.notionToken).createPage(
-                    parent: AppSettings.notionParent,
-                    title: MarkdownToNotion.title(from: markdown) ?? title,
-                    markdown: markdown,
-                    sourceInfo: Self.sourceInfo(title: title, duration: duration))
-                player.setNotionPage(url, for: video)
+                let client = NotionClient(token: AppSettings.notionToken)
+                let info = Self.sourceInfo(title: title, duration: duration)
+                let blocks = NotionClient.noteBlocks(markdown: markdown, sourceInfo: info, dropTitle: false)
+                let url: String
+                if let page = record.notionPageURL, try await client.appendIfPresent(blocks, to: page) {
+                    url = page
+                } else {
+                    url = try await client.createPage(
+                        parent: AppSettings.notionParent,
+                        title: MarkdownToNotion.title(from: markdown) ?? title,
+                        markdown: markdown,
+                        sourceInfo: info)
+                }
+                player.setNotionPage(url, for: video, hasNotes: true)
                 player.mpv.showText("📒 「\(title)」的學習筆記已存到 Notion", duration: 4000)
             } catch {
                 player.mpv.showText("⚠️ 自動筆記失敗：\(error.localizedDescription)", duration: 5000)

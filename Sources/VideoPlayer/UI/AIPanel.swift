@@ -4,6 +4,7 @@ import VideoPlayerCore
 struct AIPanel: View {
     @EnvironmentObject var assistant: AIAssistant
     @EnvironmentObject var player: PlayerModel
+    @EnvironmentObject var screenshots: NotionScreenshots
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
@@ -37,16 +38,43 @@ struct AIPanel: View {
             }
             Text(transcriptStatus).font(.caption).foregroundStyle(.secondary)
             HStack {
-                Button("摘要") { assistant.summarize() }
-                Button("學習筆記") { assistant.makeNotes() }
-                Button("存到 Notion") { assistant.saveLastAnswerToNotion() }
-                    .disabled(assistant.lastAnswer == nil || !assistant.hasNotion)
-                    .help(assistant.hasNotion ? "把最後一則回覆存成 Notion 頁面" : "請先到設定填入 Notion Token 和頁面")
+                HStack {
+                    Button("摘要") { assistant.summarize() }
+                    Button("學習筆記") { assistant.makeNotes() }
+                    Button("存到 Notion") { assistant.saveLastAnswerToNotion() }
+                        .disabled(assistant.lastAnswer == nil || !assistant.hasNotion)
+                        .help(assistant.hasNotion ? "把最後一則回覆存成 Notion 頁面" : "請先到設定填入 Notion Token 和頁面")
+                }
+                .disabled(assistant.isRunning || player.currentURL == nil)
+                // 截圖不受 AI 是否在回覆中影響
+                screenshotButton
             }
-            .disabled(assistant.isRunning || player.currentURL == nil)
             .controlSize(.small)
+            if let status = screenshots.status {
+                HStack(spacing: 6) {
+                    Text(status)
+                    if let url = screenshots.lastPageURL, let link = URL(string: url) {
+                        Link("開啟頁面 ↗", destination: link)
+                    }
+                }
+                .font(.caption).foregroundStyle(.secondary)
+            }
         }
         .padding(12)
+    }
+
+    /// 分割按鈕：主按鈕直接上傳，選單選「標註後上傳」
+    private var screenshotButton: some View {
+        Menu {
+            Button("標註後上傳…") { screenshots.capture(annotate: true) }
+        } label: {
+            Label("截圖", systemImage: "camera")
+        } primaryAction: {
+            screenshots.capture(annotate: false)
+        }
+        .fixedSize()
+        .disabled(!screenshots.canCapture)
+        .help(assistant.hasNotion ? "截圖到 Notion（⇧⌘S）；選單可先用紅筆標註" : "請先到設定填入 Notion Token 和頁面")
     }
 
     private var transcriptStatus: String {

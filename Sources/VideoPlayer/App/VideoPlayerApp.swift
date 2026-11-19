@@ -8,6 +8,7 @@ struct VideoPlayerApp: App {
     @StateObject private var player = PlayerModel.shared
     @StateObject private var ui = AppDelegate.ui
     @StateObject private var assistant = AppDelegate.assistant
+    @StateObject private var screenshots = AppDelegate.screenshots
 
     var body: some Scene {
         Window("Rush Video Player", id: "main") {
@@ -15,9 +16,10 @@ struct VideoPlayerApp: App {
                 .environmentObject(player)
                 .environmentObject(ui)
                 .environmentObject(assistant)
+                .environmentObject(screenshots)
         }
         .defaultSize(width: 1100, height: 660)
-        .commands { PlayerCommands(player: player, ui: ui) }
+        .commands { PlayerCommands(player: player, ui: ui, screenshots: screenshots) }
 
         Settings {
             SettingsView()
@@ -28,6 +30,7 @@ struct VideoPlayerApp: App {
 struct PlayerCommands: Commands {
     @ObservedObject var player: PlayerModel
     @ObservedObject var ui: UIState
+    @ObservedObject var screenshots: NotionScreenshots
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
@@ -50,7 +53,12 @@ struct PlayerCommands: Commands {
             Button("正常速度") { player.setSpeed(1) }.keyboardShortcut("0")
             Divider()
             Button("加書籤") { player.addBookmark() }
-            Button("截圖") { player.screenshot() }.keyboardShortcut("s", modifiers: [.command, .shift])
+            Button("截圖到 Notion") { screenshots.capture(annotate: false) }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+                .disabled(player.currentURL == nil)
+            Button("截圖並標註後上傳…") { screenshots.capture(annotate: true) }
+                .keyboardShortcut("s", modifiers: [.command, .shift, .option])
+                .disabled(player.currentURL == nil)
             Divider()
             Button(FloatingWindow.isFloating ? "結束子母畫面" : "子母畫面（浮動小視窗）") { FloatingWindow.toggle() }
                 .keyboardShortcut("p", modifiers: [.command, .option])
@@ -72,6 +80,7 @@ struct PlayerCommands: Commands {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor static let ui = UIState()
     @MainActor static let assistant = AIAssistant(player: PlayerModel.shared)
+    @MainActor static let screenshots = NotionScreenshots(player: PlayerModel.shared)
 
     private var keyMonitor: Any?
     /// App 還沒準備好時收到的檔案（從 Finder 開啟）

@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Testing
 @testable import VideoPlayerCore
@@ -52,25 +53,82 @@ struct NotionIntegrationTests {
             sourceInfo: "整合測試（\(kind)）")
         print("建立：\(kind) → \(url)")
 
-        // 讀回所有 children，確認分批寫入後數量正確
-        let pageID = try #require(NotionID.parse(url))
-        var count = 0
+        // 標題 H1 不重複放進內文，另外多一個 callout
+        let expected = MarkdownToNotion.blocks(from: Self.markdown).count - 1 + 1
+        #expect(try await Self.children(of: url).count == expected)
+    }
+
+    /// 讀回頁面所有 children（處理分頁）
+    static func children(of page: String) async throws -> [JSONValue] {
+        let pageID = try #require(NotionID.parse(page))
+        var blocks: [JSONValue] = []
         var cursor: String?
         repeat {
             var components = URLComponents(string: "https://api.notion.com/v1/blocks/\(pageID)/children")!
             components.queryItems = [URLQueryItem(name: "page_size", value: "100")] + (cursor.map { [URLQueryItem(name: "start_cursor", value: $0)] } ?? [])
             var request = URLRequest(url: components.url!)
-            request.setValue("Bearer \(Self.token!)", forHTTPHeaderField: "Authorization")
+            request.setValue("Bearer \(token!)", forHTTPHeaderField: "Authorization")
             request.setValue("2022-06-28", forHTTPHeaderField: "Notion-Version")
             let (data, _) = try await URLSession.shared.data(for: request)
             let json = try JSONValue.parse(data)
-            count += json["results"]?.arrayValue?.count ?? 0
+            blocks += json["results"]?.arrayValue ?? []
             cursor = json["has_more"] == true ? json["next_cursor"]?.stringValue : nil
         } while cursor != nil
+        return blocks
+    }
 
-        // 標題 H1 不重複放進內文，另外多一個 callout
-        let expected = MarkdownToNotion.blocks(from: Self.markdown).count - 1 + 1
-        #expect(count == expected)
+    /// 本機常見的圖片存放位置裡的圖片檔
+    static func localImages() -> Set<String> {
+        let dirs = [FileManager.default.temporaryDirectory,
+                    FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop")]
+        var found: Set<String> = []
+        for dir in dirs {
+            let items = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil)?.allObjects as? [URL] ?? []
+            found.formUnion(items.filter { ["png", "jpg", "jpeg"].contains($0.pathExtension.lowercased()) }.map(\.path))
+        }
+        return found
+    }
+
+    /// 1280×720 的漸層圖，加上紅筆標註
+    static func screenshot() throws -> FrameImage.Encoded {
+        let width = 1280, height = 720
+        var pixels = Data(count: width * height * 4)
+        for y in 0..<height {
+            for x in 0..<width {
+                let i = (y * width + x) * 4
+                pixels[i] = UInt8(x * 255 / width); pixels[i + 1] = UInt8(y * 255 / height); pixels[i + 2] = 80
+            }
+        }
+        let frame = try #require(FrameImage.image(pixels: pixels, width: width, height: height, stride: width * 4, format: "bgr0"))
+        let stroke = [CGPoint(x: 200, y: 200), CGPoint(x: 640, y: 500), CGPoint(x: 1080, y: 200)]
+        let annotated = try #require(FrameImage.annotate(frame, strokes: [stroke], lineWidth: FrameImage.penWidth(for: frame)))
+        return try #require(FrameImage.encode(annotated))
+    }
+
+    @Test(arguments: NotionTestEnv.parents)
+    func uploadsScreenshotsToOnePage(parent: String) async throws {
+        let before = Self.localImages()
+        let client = NotionClient(token: Self.token!)
+        let image = try Self.screenshot()
+
+        let first = try await client.addImage(
+            image.data, filename: "screenshot-83.png", contentType: image.contentType, caption: "[1:23] 遞迴需要終止條件",
+            page: nil, parent: parent, newPageTitle: "[測試] 截圖上傳", sourceInfo: "整合測試：截圖上傳")
+        #expect(first.created)
+        let second = try await client.addImage(
+            image.data, filename: "screenshot-125.png", contentType: image.contentType, caption: "[2:05]",
+            page: first.pageURL, parent: parent, newPageTitle: "[測試] 截圖上傳", sourceInfo: nil)
+        #expect(!second.created)
+        #expect(second.pageURL == first.pageURL)
+        print("截圖頁面：\(first.pageURL)")
+
+        let blocks = try await Self.children(of: first.pageURL)
+        #expect(blocks.map { $0["type"]?.stringValue ?? "" } == ["callout", "image", "image"])
+        let captions = blocks.dropFirst().map { $0["image"]?["caption"]?.arrayValue?.first?["plain_text"]?.stringValue }
+        #expect(captions == ["[1:23] 遞迴需要終止條件", "[2:05]"])
+        #expect(blocks[1]["image"]?["type"] == "file")
+
+        #expect(Self.localImages().subtracting(before).isEmpty)
     }
 
     @Test func reportsInvalidToken() async {

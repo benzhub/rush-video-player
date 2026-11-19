@@ -200,11 +200,6 @@ final class PlayerModel: ObservableObject, MPVControllerDelegate {
         mpv.showText("字幕大小 \(Int(value * 100))%")
     }
 
-    func screenshot() {
-        mpv.command("screenshot")
-        mpv.showText("截圖已存到桌面")
-    }
-
     // MARK: - 字幕
 
     /// 選擇字幕軌（nil = 關閉），並記住這部影片的選擇
@@ -334,8 +329,12 @@ final class PlayerModel: ObservableObject, MPVControllerDelegate {
         store.update(url) { $0.bookmarks = bookmarks }
     }
 
-    func setNotionPage(_ pageURL: String, for video: URL) {
-        store.update(video) { $0.notionPageURL = pageURL }
+    func setNotionPage(_ pageURL: String, for video: URL, hasNotes: Bool) {
+        store.update(video) { r in
+            if r.notionPageURL != pageURL { r.notionHasNotes = false }
+            r.notionPageURL = pageURL
+            if hasNotes { r.notionHasNotes = true }
+        }
         store.save()
     }
 

@@ -30,10 +30,15 @@ public struct MediaRecord: Codable, Equatable, Sendable {
     public var subtitle: SubtitleChoice?
     public var subtitleDelay: Double = 0
     public var bookmarks: [Bookmark] = []
+    /// 這部影片的 Notion 頁面（學習筆記、截圖都放在這裡）
     public var notionPageURL: String?
+    /// 頁面上是否已經有學習筆記；只有截圖時為 false。舊資料沒有這個欄位，有頁面就代表有筆記。
+    public var notionHasNotes: Bool?
     public var updatedAt = Date()
 
     public init() {}
+
+    public var hasNotionNotes: Bool { notionHasNotes ?? (notionPageURL != nil) }
 
     /// 0...1，未知長度時為 0
     public var progress: Double {

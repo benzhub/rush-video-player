@@ -1,5 +1,6 @@
 import AppKit
 import Libmpv
+import VideoPlayerCore
 
 /// mpv 回報的屬性值
 enum MPVValue {
@@ -92,7 +93,6 @@ final class MPVController {
             ("ytdl", "no"),
             ("volume-max", "150"),
             ("audio-client-name", "Rush Video Player"),
-            ("screenshot-directory", "~~desktop/"),
         ]
         for (name, value) in options {
             check(mpv_set_option_string(mpv, name, value))
@@ -174,6 +174,38 @@ final class MPVController {
         guard let mpv = handle else { return nil }
         var v: Double = 0
         return mpv_get_property(mpv, name, MPV_FORMAT_DOUBLE, &v) >= 0 ? v : nil
+    }
+
+    /// 用 `screenshot-raw` 在記憶體中擷取目前影格（含字幕），不會寫入任何檔案
+    func screenshotRaw() -> CGImage? {
+        guard let mpv = handle else { return nil }
+        let strings = (["screenshot-raw", "subtitles"] as [String]).map { strdup($0) }
+        defer { strings.forEach { free($0) } }
+        var cargs: [UnsafePointer<CChar>?] = strings.map { UnsafePointer($0) } + [nil]
+        var result = mpv_node()
+        guard check(mpv_command_ret(mpv, &cargs, &result)) else { return nil }
+        defer { mpv_free_node_contents(&result) }
+        guard result.format == MPV_FORMAT_NODE_MAP, let list = result.u.list?.pointee else { return nil }
+
+        var width = 0, height = 0, stride = 0
+        var format = ""
+        var pixels: Data?
+        for i in 0..<Int(list.num) {
+            guard let key = list.keys?[i], let node = list.values?[i] else { continue }
+            switch String(cString: key) {
+            case "w": width = Int(node.u.int64)
+            case "h": height = Int(node.u.int64)
+            case "stride": stride = Int(node.u.int64)
+            case "format": format = node.u.string.map { String(cString: $0) } ?? ""
+            case "data":
+                if node.format == MPV_FORMAT_BYTE_ARRAY, let ba = node.u.ba?.pointee, let data = ba.data {
+                    pixels = Data(bytes: data, count: ba.size)
+                }
+            default: break
+            }
+        }
+        guard let pixels else { return nil }
+        return FrameImage.image(pixels: pixels, width: width, height: height, stride: stride, format: format)
     }
 
     func tracks() -> [MPVTrack] {

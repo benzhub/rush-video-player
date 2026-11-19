@@ -93,6 +93,8 @@ enum AppSettings {
         KeychainStore.get(.notionToken) ?? ProcessInfo.processInfo.environment["NOTION_TOKEN"] ?? ""
     }
 
+    static var hasNotion: Bool { !notionToken.isEmpty && !notionParent.isEmpty }
+
     static func claudeClient() -> ClaudeClient {
         ClaudeClient(
             apiKey: anthropicAPIKey,

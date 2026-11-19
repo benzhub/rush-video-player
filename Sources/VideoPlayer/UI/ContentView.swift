@@ -12,6 +12,7 @@ struct ContentView: View {
     @EnvironmentObject var player: PlayerModel
     @EnvironmentObject var ui: UIState
     @EnvironmentObject var assistant: AIAssistant
+    @EnvironmentObject var screenshots: NotionScreenshots
     @State private var hideTask: Task<Void, Never>?
     @State private var dropTargeted = false
 
@@ -30,6 +31,12 @@ struct ContentView: View {
         .background(Color.black)
         .navigationTitle(player.title)
         .frame(minWidth: 640, minHeight: 360)
+        .sheet(item: $screenshots.annotating, onDismiss: screenshots.annotationClosed) { frame in
+            AnnotationView(
+                frame: frame,
+                onUpload: { strokes, width in screenshots.finishAnnotation(strokes: strokes, lineWidth: width) },
+                onCancel: { screenshots.annotating = nil })
+        }
     }
 
     private var playerArea: some View {

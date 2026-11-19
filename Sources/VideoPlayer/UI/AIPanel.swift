@@ -50,7 +50,13 @@ struct AIPanel: View {
                 screenshotButton
             }
             .controlSize(.small)
-            if let status = screenshots.status {
+            if player.currentURL != nil, !assistant.hasNotion {
+                HStack(spacing: 4) {
+                    Text("截圖、存到 Notion 需要先設定 Notion Token 和筆記頁面")
+                    Button("開啟設定") { openSettings() }.buttonStyle(.link)
+                }
+                .font(.caption).foregroundStyle(.secondary)
+            } else if let status = screenshots.status {
                 HStack(spacing: 6) {
                     Text(status)
                     if let url = screenshots.lastPageURL, let link = URL(string: url) {

@@ -56,6 +56,7 @@ final class PlayerModel: ObservableObject, MPVControllerDelegate {
     private init() {
         mpv = MPVController(layer: videoView.metalLayer)
         mpv.delegate = self
+        videoView.onResize = { [weak self] size in self?.mpv.matchOutputSize(size) }
     }
 
     var currentURL: URL? { currentIndex.flatMap { playlist.indices.contains($0) ? playlist[$0] : nil } }

@@ -66,6 +66,8 @@ final class MPVController {
         ("paused-for-cache", MPV_FORMAT_FLAG),
     ]
 
+    static let videoOutput = "gpu-next"
+
     init(layer: CAMetalLayer) {
         guard let mpv = mpv_create() else { fatalError("無法建立 mpv") }
         handle = mpv
@@ -74,7 +76,7 @@ final class MPVController {
         var wid = Int64(Int(bitPattern: Unmanaged.passUnretained(layer).toOpaque()))
         check(mpv_set_option(mpv, "wid", MPV_FORMAT_INT64, &wid))
         let options: [(String, String)] = [
-            ("vo", "gpu-next"),
+            ("vo", Self.videoOutput),
             ("gpu-api", "vulkan"),
             ("gpu-context", "moltenvk"),
             ("hwdec", "videotoolbox"),
@@ -135,6 +137,17 @@ final class MPVController {
         defer { strings.forEach { free($0) } }
         var cargs: [UnsafePointer<CChar>?] = strings.map { UnsafePointer($0) } + [nil]
         return check(mpv_command(mpv, &cargs))
+    }
+
+    /// MPVKit 的 moltenvk context 只在 VO 重新設定時讀取 layer 大小，畫面大小改變後 mpv 仍用舊尺寸輸出
+    /// （開關側邊欄、調整視窗大小時畫面會被裁切）。大小不一致時重建 VO，讓它讀取新的大小。
+    func matchOutputSize(_ drawableSize: CGSize) {
+        // 還沒有 VO（尚未開檔）時不用處理，建立時就會讀到正確大小
+        guard let width = getInt("osd-width"), let height = getInt("osd-height"), width > 0, height > 0,
+              width != Int(drawableSize.width) || height != Int(drawableSize.height) else { return }
+        // 在兩個效果相同的值之間切換，每次都是真正的變更，mpv 才會重建 VO（設回同一個值會被忽略）
+        let current = getString("vo")
+        setString("vo", current == Self.videoOutput ? Self.videoOutput + ",gpu" : Self.videoOutput)
     }
 
     func showText(_ text: String, duration: Int = 1200) {

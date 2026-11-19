@@ -17,6 +17,9 @@ final class MetalLayer: CAMetalLayer {
 /// mpv 畫面輸出的 NSView
 final class VideoNSView: NSView {
     let metalLayer = MetalLayer()
+    /// 畫面大小改變並停下來後呼叫（拖拉視窗時不會每一格都呼叫）
+    var onResize: ((CGSize) -> Void)?
+    private var resizeWork: DispatchWorkItem?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -42,7 +45,14 @@ final class VideoNSView: NSView {
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
         metalLayer.contentsScale = scale
         metalLayer.frame = bounds
-        metalLayer.drawableSize = CGSize(width: bounds.width * scale, height: bounds.height * scale)
+        let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
+        guard size != metalLayer.drawableSize else { return }
+        metalLayer.drawableSize = size
+
+        resizeWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.onResize?(size) }
+        resizeWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
     }
 
     // 讓 SwiftUI 的手勢（雙擊全螢幕、拖放）能收到事件

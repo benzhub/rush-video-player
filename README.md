@@ -32,6 +32,7 @@ swift test                                 # 單元測試（只有 Command Line 
 set -a; . ./.env.local; set +a
 swift run VideoPlayer                      # App 會讀取 ANTHROPIC_API_KEY / NOTION_TOKEN
 swift test --filter NotionIntegration      # 對真實 Notion 建立測試頁面（需要 NOTION_TEST_PARENTS）
+RVP_CLI_TESTS=claude,codex swift test --filter CLISessionIntegration   # 實際呼叫本機 claude / codex
 ```
 
 ## 字幕自動載入規則
@@ -74,15 +75,24 @@ swift test --filter NotionIntegration      # 對真實 Notion 建立測試頁面
 
 ## AI 學習助手
 
-1. 「設定 → AI」填入 [Anthropic API Key](https://console.anthropic.com/)（存在 macOS 鑰匙圈，也可以使用環境變數 `ANTHROPIC_API_KEY`）
-2. 播放有字幕的影片，按 ⌘J 開啟助手
-3. 可以按「摘要」或「學習筆記」，或直接問問題，例如：
-   - 這集在講什麼？
-   - 帶我回到講 XXX 的地方（AI 會直接跳轉影片）
-   - 解釋一下剛剛那段
-   - 根據我的書籤整理重點並存到 Notion
+可以選擇四種 AI 來源（「設定 → AI」）：
 
-逐字稿來自外部字幕檔；如果只有內嵌字幕，會在播放時逐步累積。預設模型為 Claude Opus 5.5，可以在設定中切換。
+| 來源 | 需要 | 說明 |
+|---|---|---|
+| **Claude CLI** | 已安裝並登入 [Claude Code](https://claude.com/claude-code)（`claude`） | 使用 Claude 訂閱，不需要 API Key；逐字串流 |
+| **Anthropic API Key** | [API Key](https://console.anthropic.com/) 或環境變數 `ANTHROPIC_API_KEY` | 完整工具：AI 可以自己跳轉影片、查逐字稿、存 Notion |
+| **OpenAI API Key** | API Key 或環境變數 `OPENAI_API_KEY` | 完整工具，使用 Responses API |
+| **Codex CLI** | 已安裝並登入 Codex CLI（`codex`） | 使用 ChatGPT 訂閱，不需要 API Key；回覆整段出現 |
+
+沒有特別選擇時，會依上表順序自動使用第一個可用的來源。API Key 存在 macOS 鑰匙圈。CLI 來源在暫存資料夾中執行，並關閉所有內建工具，只根據逐字稿回答；需要跳轉影片時，AI 會輸出跳轉指令，由播放器執行。
+
+使用方式：播放有字幕的影片，按 ⌘J 開啟助手，按「摘要」或「學習筆記」，或直接問問題，例如：
+- 這集在講什麼？
+- 帶我回到講 XXX 的地方（播放器會直接跳轉）
+- 解釋一下剛剛那段
+- 整理成筆記並存到 Notion
+
+回覆中的時間戳（例如 `[1:23]`）可以點擊跳轉。逐字稿來自外部字幕檔；如果只有內嵌字幕，會在播放時逐步累積。
 
 ### 存到 Notion
 

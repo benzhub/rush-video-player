@@ -18,7 +18,9 @@ final class AIAssistant: ObservableObject {
     @Published var input = ""
 
     private let player: PlayerModel
-    private var agent: StudyAgent?
+    private var session: StudySession?
+    /// 目前對話使用的來源；設定改變後下一則訊息會開新對話
+    private var sessionProvider: AIProviderKind?
     private var task: Task<Void, Never>?
     private var cancellables: Set<AnyCancellable> = []
 
@@ -28,7 +30,8 @@ final class AIAssistant: ObservableObject {
         player.finishedEpisode.sink { [weak self] url in self?.autoSaveNotes(for: url) }.store(in: &cancellables)
     }
 
-    var hasAPIKey: Bool { !AppSettings.anthropicAPIKey.isEmpty }
+    var provider: AIProviderKind { AppSettings.aiProvider }
+    var isConfigured: Bool { AppSettings.isAvailable(provider) }
     var hasNotion: Bool { !AppSettings.notionToken.isEmpty && !AppSettings.notionParent.isEmpty }
 
     /// 最後一則 AI 回覆，用來存到 Notion
@@ -39,7 +42,8 @@ final class AIAssistant: ObservableObject {
     func reset() {
         task?.cancel()
         task = nil
-        agent = nil
+        session = nil
+        sessionProvider = nil
         items = []
         isRunning = false
         lastNotionURL = nil
@@ -61,12 +65,17 @@ final class AIAssistant: ObservableObject {
 
     private func send(_ prompt: String, display: String) {
         guard !isRunning, player.currentURL != nil else { return }
-        guard hasAPIKey else {
-            items.append(ChatItem(role: .status, text: ClaudeError.missingAPIKey.localizedDescription))
+        let provider = self.provider
+        guard AppSettings.isAvailable(provider) else {
+            items.append(ChatItem(role: .status, text: "⚠️ \(Self.setupHint(for: provider))"))
             return
         }
-        let agent = self.agent ?? makeAgent()
-        self.agent = agent
+        if sessionProvider != provider {
+            if session != nil { items.append(ChatItem(role: .status, text: "已切換到 \(provider.shortName)，開始新對話")) }
+            session = AppSettings.makeSession(context: context(), tools: tools())
+            sessionProvider = provider
+        }
+        guard let session else { return }
 
         // 目前播放時間附在訊息裡（不修改 system prompt，對話歷史只往後加）
         let message = "（目前播放到 \(TimeFormat.clock(player.timePos))）\n\(prompt)"
@@ -76,13 +85,16 @@ final class AIAssistant: ObservableObject {
         isRunning = true
 
         // 串流事件經由 AsyncStream 依序送回主執行緒
-        let (events, continuation) = AsyncStream<StudyAgent.Event>.makeStream()
+        let (events, continuation) = AsyncStream<AIEvent>.makeStream()
         task = Task { [weak self] in
             let consumer = Task { @MainActor [weak self] in
                 for await event in events { self?.apply(event, to: reply.id) }
             }
             do {
-                _ = try await agent.send(message) { continuation.yield($0) }
+                let text = try await session.send(message) { continuation.yield($0) }
+                continuation.finish()
+                await consumer.value
+                if !session.supportsTools { self?.applySeekDirective(in: text, replyID: reply.id) }
             } catch is CancellationError {
                 self?.items.append(ChatItem(role: .status, text: "已停止"))
             } catch let error as URLError where error.code == .cancelled {
@@ -96,7 +108,26 @@ final class AIAssistant: ObservableObject {
         }
     }
 
-    private func apply(_ event: StudyAgent.Event, to replyID: UUID) {
+    /// CLI 來源用 `<seek>秒數</seek>` 要求跳轉：去掉指令並執行
+    private func applySeekDirective(in text: String, replyID: UUID) {
+        let (cleaned, seconds) = SeekDirective.extract(text)
+        if let index = items.firstIndex(where: { $0.id == replyID }) { items[index].text = cleaned }
+        if let seconds {
+            player.seek(to: seconds)
+            items.append(ChatItem(role: .status, text: "⏩ 跳到 \(TimeFormat.clock(seconds))"))
+        }
+    }
+
+    static func setupHint(for provider: AIProviderKind) -> String {
+        switch provider {
+        case .claudeCLI: "找不到 claude 指令。請安裝 Claude Code 並在終端機執行 claude 登入，或到「設定 → AI」換一個來源。"
+        case .codexCLI: "找不到 codex 指令。請安裝 Codex CLI 並在終端機執行 codex 登入，或到「設定 → AI」換一個來源。"
+        case .anthropicAPI: ClaudeError.missingAPIKey.localizedDescription
+        case .openAIAPI: OpenAIError.missingAPIKey.localizedDescription
+        }
+    }
+
+    private func apply(_ event: AIEvent, to replyID: UUID) {
         guard let index = items.firstIndex(where: { $0.id == replyID }) else { return }
         switch event {
         case .text(let delta):
@@ -121,10 +152,6 @@ final class AIAssistant: ObservableObject {
 
     private func context() -> StudyContext {
         StudyContext(title: player.title, duration: player.duration, transcript: player.transcript, bookmarks: player.bookmarks)
-    }
-
-    private func makeAgent() -> StudyAgent {
-        StudyAgent(client: AppSettings.claudeClient(), context: context(), tools: tools())
     }
 
     private func tools() -> [AgentTool] {
@@ -231,7 +258,7 @@ final class AIAssistant: ObservableObject {
 
     /// 一集看完時自動產生筆記並存到 Notion（設定中開啟時）
     private func autoSaveNotes(for video: URL) {
-        guard AppSettings.autoNotion, hasAPIKey, hasNotion, !player.transcript.isEmpty,
+        guard AppSettings.autoNotion, isConfigured, hasNotion, !player.transcript.isEmpty,
               player.record(for: video).notionPageURL == nil else { return }
         let context = self.context()
         let title = player.title
@@ -239,7 +266,8 @@ final class AIAssistant: ObservableObject {
         let player = self.player
         Task {
             do {
-                let markdown = try await StudyAgent.generateNotes(client: AppSettings.claudeClient(), context: context)
+                // 用一段全新的對話產生筆記，不影響面板上的對話
+                let markdown = try await AppSettings.makeSession(context: context, tools: []).send(StudyPrompts.notes) { _ in }
                 let url = try await NotionClient(token: AppSettings.notionToken).createPage(
                     parent: AppSettings.notionParent,
                     title: MarkdownToNotion.title(from: markdown) ?? title,

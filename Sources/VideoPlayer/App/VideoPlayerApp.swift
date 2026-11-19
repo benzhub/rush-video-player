@@ -84,6 +84,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         launched = true
+        // 預先讀取登入 shell 的 PATH（找 claude / codex 指令用），避免第一次使用時卡住介面
+        Task.detached { _ = ShellEnvironment.loginPATH }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             // 本地事件監聽一定在主執行緒呼叫
             nonisolated(unsafe) let event = event

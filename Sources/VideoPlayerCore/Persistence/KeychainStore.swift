@@ -8,6 +8,7 @@ public enum KeychainStore {
     public enum Key: String, Sendable {
         case anthropicAPIKey = "anthropic-api-key"
         case notionToken = "notion-token"
+        case openAIAPIKey = "openai-api-key"
     }
 
     public static func get(_ key: Key) -> String? {

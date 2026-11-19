@@ -43,87 +43,171 @@ public struct AgentTool: Sendable {
     }
 }
 
+/// AI 回覆與 AI 面板使用的語言
+public enum AILanguage: String, CaseIterable, Codable, Sendable {
+    case traditionalChinese = "zh-Hant"
+    case english = "en"
+
+    public var displayName: String {
+        switch self {
+        case .traditionalChinese: "繁體中文"
+        case .english: "English"
+        }
+    }
+
+    /// 依語言挑選文字
+    public func pick(_ chinese: String, _ english: String) -> String {
+        self == .english ? english : chinese
+    }
+}
+
 /// 影片的學習情境：Agent 的 system prompt 由此產生
 public struct StudyContext: Sendable {
     public var title: String
     public var duration: Double
     public var transcript: Transcript
     public var bookmarks: [Bookmark]
+    public var language: AILanguage
 
-    public init(title: String, duration: Double, transcript: Transcript, bookmarks: [Bookmark]) {
+    public init(title: String, duration: Double, transcript: Transcript, bookmarks: [Bookmark],
+                language: AILanguage = .traditionalChinese) {
         self.title = title
         self.duration = duration
         self.transcript = transcript
         self.bookmarks = bookmarks
+        self.language = language
     }
 
     var transcriptNote: String {
         switch transcript.source {
-        case .file: "以下是完整逐字稿（來自字幕檔）。"
-        case .accumulated: "以下逐字稿只包含使用者已經播放過的片段（來自影片內嵌字幕），之後的內容還不知道。"
+        case .file: language.pick("以下是完整逐字稿（來自字幕檔）。", "Below is the full transcript (from a subtitle file).")
+        case .accumulated: language.pick(
+            "以下逐字稿只包含使用者已經播放過的片段（來自影片內嵌字幕），之後的內容還不知道。",
+            "The transcript below only covers the parts the user has already played (from embedded subtitles); later content is not known yet.")
         }
     }
 
     var bookmarksText: String {
-        bookmarks.isEmpty ? "（沒有書籤）" : bookmarks.sorted { $0.time < $1.time }.map { b in
+        bookmarks.isEmpty ? language.pick("（沒有書籤）", "(no bookmarks)") : bookmarks.sorted { $0.time < $1.time }.map { b in
             var line = "[\(TimeFormat.clock(b.time))]"
-            if let s = b.subtitle, !s.isEmpty { line += " 字幕：「\(s)」" }
-            if !b.note.isEmpty { line += " 筆記：\(b.note)" }
+            if let s = b.subtitle, !s.isEmpty { line += language.pick(" 字幕：「\(s)」", " Subtitle: \"\(s)\"") }
+            if !b.note.isEmpty { line += language.pick(" 筆記：\(b.note)", " Note: \(b.note)") }
             return line
         }.joined(separator: "\n")
     }
 }
 
 public enum StudyPrompts {
-    static let baseInstructions = """
-    你是內建在影片播放器裡的學習助手。使用者正在看一部影片（課程、演講、教學或影集），想用你加速理解與整理內容。
+    static func baseInstructions(_ language: AILanguage) -> String {
+        switch language {
+        case .traditionalChinese: """
+            你是內建在影片播放器裡的學習助手。使用者正在看一部影片（課程、演講、教學或影集），想用你加速理解與整理內容。
 
-    - 一律使用繁體中文（台灣用語）回答，專有名詞可以附上原文。
-    - 回答要根據逐字稿；逐字稿沒有提到的內容，請明確說是你的補充，不要假裝影片有講。
-    - 提到影片內容時附上時間戳，格式為 [m:ss] 或 [h:mm:ss]，方便使用者跳轉。
-    - 使用 Markdown：標題、條列、粗體。不要用表格（側邊欄很窄）。
-    """
+            - 一律使用繁體中文（台灣用語）回答，專有名詞可以附上原文。
+            - 回答要根據逐字稿；逐字稿沒有提到的內容，請明確說是你的補充，不要假裝影片有講。
+            - 提到影片內容時附上時間戳，格式為 [m:ss] 或 [h:mm:ss]，方便使用者跳轉。
+            - 使用 Markdown：標題、條列、粗體。不要用表格（側邊欄很窄）。
+            """
+        case .english: """
+            You are a study assistant built into a video player. The user is watching a video (a course, talk, tutorial or show) and wants your help to understand and organize its content faster.
 
-    static let toolInstructions = """
-    - 使用者想回到某段內容時，用 seek_to 工具直接跳過去。
-    - 只有在使用者要求時，才用 save_note_to_notion 存到 Notion。
-    """
-
-    /// CLI 來源沒有 App 工具，跳轉改用文字指令，由 App 解析執行
-    static let directiveInstructions = """
-    - 你沒有任何工具，也不要讀寫檔案或執行指令，只根據下面的逐字稿回答。
-    - 使用者想回到、重看或找到某段內容時，在回覆最後單獨一行輸出 <seek>秒數</seek>（例如 <seek>95</seek>），播放器會自動跳過去。
-    - 使用者要存到 Notion 時，請他按面板上的「存到 Notion」按鈕。
-    """
-
-    public static func instructions(withTools: Bool) -> String {
-        baseInstructions + (withTools ? toolInstructions : directiveInstructions)
+            - Always answer in English, even if the transcript or the user's message is in another language.
+            - Base your answers on the transcript; if something is not in the transcript, say clearly that it is your own addition instead of pretending the video said it.
+            - When you refer to the video, include timestamps in the form [m:ss] or [h:mm:ss] so the user can jump there.
+            - Use Markdown: headings, bullet lists, bold. Do not use tables (the sidebar is narrow).
+            """
+        }
     }
 
-    public static let summary = """
-    請幫我摘要這部影片：
-    1. 一段話的整體摘要
-    2. 依時間順序的章節重點（每節附開始時間戳）
-    3. 重要名詞解釋
-    """
+    static func toolInstructions(_ language: AILanguage) -> String {
+        switch language {
+        case .traditionalChinese: """
+            - 使用者想回到某段內容時，用 seek_to 工具直接跳過去。
+            - 只有在使用者要求時，才用 save_note_to_notion 存到 Notion。
+            """
+        case .english: """
+            - When the user wants to go back to some part of the video, use the seek_to tool to jump there.
+            - Only use save_note_to_notion when the user asks to save to Notion.
+            """
+        }
+    }
 
-    public static let notes = """
-    請把這部影片整理成一份可以長期保存的學習筆記（Markdown）。結構如下：
-    # 標題（用影片主題，不要用檔名）
-    ## 摘要
-    ## 重點筆記（依章節，附時間戳）
-    ## 關鍵名詞
-    ## 我的書籤（如果有書籤，說明每個書籤時間點在講什麼、為什麼重要）
-    ## 複習問題（3–5 題，附簡短答案）
-    只輸出筆記本身，不要加開場白或結語。
-    """
+    /// CLI 來源沒有 App 工具，跳轉改用文字指令，由 App 解析執行
+    static func directiveInstructions(_ language: AILanguage) -> String {
+        switch language {
+        case .traditionalChinese: """
+            - 你沒有任何工具，也不要讀寫檔案或執行指令，只根據下面的逐字稿回答。
+            - 使用者想回到、重看或找到某段內容時，在回覆最後單獨一行輸出 <seek>秒數</seek>（例如 <seek>95</seek>），播放器會自動跳過去。
+            - 使用者要存到 Notion 時，請他按面板上的「存到 Notion」按鈕。
+            """
+        case .english: """
+            - You have no tools. Do not read or write files or run commands; answer only from the transcript below.
+            - When the user wants to go back to, rewatch or find some part of the video, output <seek>seconds</seek> on its own line at the end of your reply (e.g. <seek>95</seek>) and the player will jump there.
+            - When the user wants to save to Notion, ask them to press the "Save to Notion" button in the panel.
+            """
+        }
+    }
+
+    public static func instructions(withTools: Bool, language: AILanguage = .traditionalChinese) -> String {
+        baseInstructions(language) + (withTools ? toolInstructions(language) : directiveInstructions(language))
+    }
+
+    public static func summary(_ language: AILanguage) -> String {
+        switch language {
+        case .traditionalChinese: """
+            請幫我摘要這部影片：
+            1. 一段話的整體摘要
+            2. 依時間順序的章節重點（每節附開始時間戳）
+            3. 重要名詞解釋
+            """
+        case .english: """
+            Please summarize this video:
+            1. A one-paragraph overall summary
+            2. Key points by section in chronological order (each with its start timestamp)
+            3. Explanations of important terms
+            """
+        }
+    }
+
+    public static func notes(_ language: AILanguage) -> String {
+        switch language {
+        case .traditionalChinese: """
+            請把這部影片整理成一份可以長期保存的學習筆記（Markdown）。結構如下：
+            # 標題（用影片主題，不要用檔名）
+            ## 摘要
+            ## 重點筆記（依章節，附時間戳）
+            ## 關鍵名詞
+            ## 我的書籤（如果有書籤，說明每個書籤時間點在講什麼、為什麼重要）
+            ## 複習問題（3–5 題，附簡短答案）
+            只輸出筆記本身，不要加開場白或結語。
+            """
+        case .english: """
+            Please turn this video into study notes worth keeping (Markdown), in English, with this structure:
+            # Title (the topic of the video, not the file name)
+            ## Summary
+            ## Key Notes (by section, with timestamps)
+            ## Key Terms
+            ## My Bookmarks (if there are bookmarks, explain what each bookmarked moment covers and why it matters)
+            ## Review Questions (3–5, with short answers)
+            Output only the notes themselves, with no introduction or closing remarks.
+            """
+        }
+    }
+
+    /// 附在每則訊息前的目前播放時間
+    public static func playbackPosition(_ seconds: Double, language: AILanguage) -> String {
+        language.pick("（目前播放到 \(TimeFormat.clock(seconds))）", "(Currently at \(TimeFormat.clock(seconds)))")
+    }
 
     /// 影片資訊與逐字稿
     public static func material(for context: StudyContext) -> String {
-        let transcript = context.transcript.isEmpty ? "（目前沒有逐字稿：這部影片沒有可讀取的字幕）" : context.transcript.formatted()
+        let l = context.language
+        let transcript = context.transcript.isEmpty
+            ? l.pick("（目前沒有逐字稿：這部影片沒有可讀取的字幕）", "(No transcript: this video has no readable subtitles.)")
+            : context.transcript.formatted()
         return """
-        影片：\(context.title)
-        長度：\(TimeFormat.clock(context.duration))
+        \(l.pick("影片：", "Video: "))\(context.title)
+        \(l.pick("長度：", "Duration: "))\(TimeFormat.clock(context.duration))
         \(context.transcriptNote)
         <transcript>
         \(transcript)
@@ -133,12 +217,12 @@ public enum StudyPrompts {
 
     /// 沒有工具的來源使用的完整 system prompt
     public static func plainSystemPrompt(for context: StudyContext) -> String {
-        instructions(withTools: false) + "\n" + material(for: context)
+        instructions(withTools: false, language: context.language) + "\n" + material(for: context)
     }
 
     static func system(for context: StudyContext) -> [JSONValue] {
         [
-            ["type": "text", "text": .string(instructions(withTools: true))],
+            ["type": "text", "text": .string(instructions(withTools: true, language: context.language))],
             // 逐字稿很長且在同一段對話中固定不變，放在 cache breakpoint 前，後續提問只付快取價格
             ["type": "text", "text": .string(material(for: context)), "cache_control": ["type": "ephemeral"]],
         ]

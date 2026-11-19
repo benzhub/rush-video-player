@@ -133,6 +133,17 @@ struct CLISessionIntegrationTests {
         try await exercise(CodexCLISession(context: CLITestEnv.context))
     }
 
+    @Test(.enabled(if: CLITestEnv.enabled.contains("claude")))
+    func claudeCLIAnswersInEnglish() async throws {
+        var context = CLITestEnv.context
+        context.language = .english
+        let answer = try await ClaudeCLISession(context: context).send(StudyPrompts.summary(.english)) { _ in }
+        print("English summary: \(answer)")
+        #expect(answer.localizedCaseInsensitiveContains("recursion"))
+        // 中文影片仍可能附上原文名詞，只檢查主體是英文
+        #expect(answer.contains("Summary"))
+    }
+
     private func exercise(_ session: StudySession) async throws {
         // 第一輪：根據逐字稿回答
         let answer = try await session.send("這部影片的主題是什麼？用一句話回答。") { _ in }

@@ -43,11 +43,11 @@ final class NotionScreenshots: ObservableObject {
     func capture(annotate: Bool) {
         guard player.currentURL != nil, annotating == nil else { return }
         guard AppSettings.hasNotion else {
-            show("⚠️ 請先到「設定 → Notion」填入 Token 和筆記存放頁面")
+            show(AppSettings.aiLanguage.pick("⚠️ 請先到「設定 → Notion」填入 Token 和筆記存放頁面", "⚠️ Enter a Notion token and notes page in Settings → Notion first"))
             return
         }
         guard let frame = grab() else {
-            show("⚠️ 無法擷取目前畫面")
+            show(AppSettings.aiLanguage.pick("⚠️ 無法擷取目前畫面", "⚠️ Could not capture the current frame"))
             return
         }
         if annotate {
@@ -66,7 +66,7 @@ final class NotionScreenshots: ObservableObject {
         if let image = FrameImage.annotate(frame.image, strokes: strokes, lineWidth: lineWidth) {
             upload(frame, image: image)
         } else {
-            show("⚠️ 無法合成標註")
+            show(AppSettings.aiLanguage.pick("⚠️ 無法合成標註", "⚠️ Could not apply the annotation"))
         }
     }
 
@@ -86,7 +86,7 @@ final class NotionScreenshots: ObservableObject {
     }
 
     private func upload(_ frame: CapturedFrame, image: CGImage) {
-        show("📤 正在上傳截圖 \(TimeFormat.clock(frame.time))…", osd: false)
+        show(AppSettings.aiLanguage.pick("📤 正在上傳截圖 \(TimeFormat.clock(frame.time))…", "📤 Uploading screenshot \(TimeFormat.clock(frame.time))…"), osd: false)
         let previous = queue
         let player = self.player
         queue = Task {
@@ -106,9 +106,9 @@ final class NotionScreenshots: ObservableObject {
                     sourceInfo: AIAssistant.sourceInfo(title: frame.videoTitle, duration: frame.duration))
                 player.setNotionPage(result.pageURL, for: frame.video, hasNotes: false)
                 lastPageURL = result.pageURL
-                show("✅ 截圖 \(TimeFormat.clock(frame.time)) 已上傳到 Notion")
+                show(AppSettings.aiLanguage.pick("✅ 截圖 \(TimeFormat.clock(frame.time)) 已上傳到 Notion", "✅ Screenshot \(TimeFormat.clock(frame.time)) uploaded to Notion"))
             } catch {
-                show("⚠️ 截圖上傳失敗：\(error.localizedDescription)", duration: 5000)
+                show(AppSettings.aiLanguage.pick("⚠️ 截圖上傳失敗：", "⚠️ Screenshot upload failed: ") + error.localizedDescription, duration: 5000)
             }
         }
     }

@@ -132,3 +132,27 @@ struct NotionTests {
         #expect(rich.allSatisfy { ($0["text"]?["content"]?.stringValue?.count ?? 0) <= 2000 })
     }
 }
+
+struct StudyPromptLanguageTests {
+    let transcript = Transcript(cues: [SubtitleCue(start: 1, end: 3, text: "Welcome to the course.")])
+
+    @Test func defaultsToTraditionalChinese() {
+        let context = StudyContext(title: "Intro", duration: 60, transcript: transcript, bookmarks: [])
+        #expect(context.language == .traditionalChinese)
+        #expect(StudyPrompts.plainSystemPrompt(for: context).contains("繁體中文"))
+        #expect(StudyPrompts.summary(.traditionalChinese).contains("摘要"))
+    }
+
+    @Test func englishPromptsAskForEnglish() {
+        let context = StudyContext(title: "Intro", duration: 60, transcript: transcript, bookmarks: [], language: .english)
+        let plain = StudyPrompts.plainSystemPrompt(for: context)
+        #expect(plain.contains("Always answer in English"))
+        #expect(plain.contains("<seek>seconds</seek>"))
+        #expect(plain.contains("Video: Intro"))
+        #expect(!plain.contains("繁體中文"))
+        #expect(StudyPrompts.instructions(withTools: true, language: .english).contains("seek_to"))
+        #expect(StudyPrompts.summary(.english).hasPrefix("Please summarize"))
+        #expect(StudyPrompts.notes(.english).contains("## Review Questions"))
+        #expect(StudyPrompts.playbackPosition(65, language: .english) == "(Currently at 1:05)")
+    }
+}

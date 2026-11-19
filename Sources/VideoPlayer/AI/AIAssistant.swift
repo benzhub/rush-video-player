@@ -19,8 +19,9 @@ final class AIAssistant: ObservableObject {
 
     private let player: PlayerModel
     private var session: StudySession?
-    /// 目前對話使用的來源；設定改變後下一則訊息會開新對話
+    /// 目前對話使用的來源與語言；設定改變後下一則訊息會開新對話
     private var sessionProvider: AIProviderKind?
+    private var sessionLanguage: AILanguage?
     private var task: Task<Void, Never>?
     private var cancellables: Set<AnyCancellable> = []
 
@@ -44,6 +45,7 @@ final class AIAssistant: ObservableObject {
         task = nil
         session = nil
         sessionProvider = nil
+        sessionLanguage = nil
         items = []
         isRunning = false
         lastNotionURL = nil
@@ -53,8 +55,10 @@ final class AIAssistant: ObservableObject {
         task?.cancel()
     }
 
-    func summarize() { send(StudyPrompts.summary, display: "📝 摘要這部影片") }
-    func makeNotes() { send(StudyPrompts.notes, display: "📒 整理學習筆記") }
+    var language: AILanguage { AppSettings.aiLanguage }
+
+    func summarize() { send(StudyPrompts.summary(language), display: language.pick("📝 摘要這部影片", "📝 Summarize this video")) }
+    func makeNotes() { send(StudyPrompts.notes(language), display: language.pick("📒 整理學習筆記", "📒 Make study notes")) }
 
     func submitInput() {
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -66,19 +70,25 @@ final class AIAssistant: ObservableObject {
     private func send(_ prompt: String, display: String) {
         guard !isRunning, player.currentURL != nil else { return }
         let provider = self.provider
+        let language = self.language
         guard AppSettings.isAvailable(provider) else {
             items.append(ChatItem(role: .status, text: "⚠️ \(Self.setupHint(for: provider))"))
             return
         }
-        if sessionProvider != provider {
-            if session != nil { items.append(ChatItem(role: .status, text: "已切換到 \(provider.shortName)，開始新對話")) }
+        if sessionProvider != provider || sessionLanguage != language {
+            if session != nil {
+                items.append(ChatItem(role: .status, text: sessionProvider != provider
+                    ? language.pick("已切換到 \(provider.shortName)，開始新對話", "Switched to \(provider.shortName); starting a new conversation")
+                    : language.pick("已切換回覆語言，開始新對話", "Reply language changed; starting a new conversation")))
+            }
             session = AppSettings.makeSession(context: context(), tools: tools())
             sessionProvider = provider
+            sessionLanguage = language
         }
         guard let session else { return }
 
         // 目前播放時間附在訊息裡（不修改 system prompt，對話歷史只往後加）
-        let message = "（目前播放到 \(TimeFormat.clock(player.timePos))）\n\(prompt)"
+        let message = StudyPrompts.playbackPosition(player.timePos, language: language) + "\n\(prompt)"
         items.append(ChatItem(role: .user, text: display))
         let reply = ChatItem(role: .assistant, text: "")
         items.append(reply)
@@ -96,9 +106,9 @@ final class AIAssistant: ObservableObject {
                 await consumer.value
                 if !session.supportsTools { self?.applySeekDirective(in: text, replyID: reply.id) }
             } catch is CancellationError {
-                self?.items.append(ChatItem(role: .status, text: "已停止"))
+                self?.items.append(ChatItem(role: .status, text: language.pick("已停止", "Stopped")))
             } catch let error as URLError where error.code == .cancelled {
-                self?.items.append(ChatItem(role: .status, text: "已停止"))
+                self?.items.append(ChatItem(role: .status, text: language.pick("已停止", "Stopped")))
             } catch {
                 self?.items.append(ChatItem(role: .status, text: "⚠️ \(error.localizedDescription)"))
             }
@@ -114,16 +124,23 @@ final class AIAssistant: ObservableObject {
         if let index = items.firstIndex(where: { $0.id == replyID }) { items[index].text = cleaned }
         if let seconds {
             player.seek(to: seconds)
-            items.append(ChatItem(role: .status, text: "⏩ 跳到 \(TimeFormat.clock(seconds))"))
+            items.append(ChatItem(role: .status, text: language.pick("⏩ 跳到 ", "⏩ Jumped to ") + TimeFormat.clock(seconds)))
         }
     }
 
     static func setupHint(for provider: AIProviderKind) -> String {
-        switch provider {
-        case .claudeCLI: "找不到 claude 指令。請安裝 Claude Code 並在終端機執行 claude 登入，或到「設定 → AI」換一個來源。"
-        case .codexCLI: "找不到 codex 指令。請安裝 Codex CLI 並在終端機執行 codex 登入，或到「設定 → AI」換一個來源。"
-        case .anthropicAPI: ClaudeError.missingAPIKey.localizedDescription
-        case .openAIAPI: OpenAIError.missingAPIKey.localizedDescription
+        let l = AppSettings.aiLanguage
+        return switch provider {
+        case .claudeCLI: l.pick(
+            "找不到 claude 指令。請安裝 Claude Code 並在終端機執行 claude 登入，或到「設定 → AI」換一個來源。",
+            "The claude command was not found. Install Claude Code and run claude in Terminal to sign in, or pick another source in Settings → AI.")
+        case .codexCLI: l.pick(
+            "找不到 codex 指令。請安裝 Codex CLI 並在終端機執行 codex 登入，或到「設定 → AI」換一個來源。",
+            "The codex command was not found. Install Codex CLI and run codex in Terminal to sign in, or pick another source in Settings → AI.")
+        case .anthropicAPI: l.pick(ClaudeError.missingAPIKey.localizedDescription,
+                                   "No Anthropic API key yet. Enter one in Settings → AI.")
+        case .openAIAPI: l.pick(OpenAIError.missingAPIKey.localizedDescription,
+                                "No OpenAI API key yet. Enter one in Settings → AI.")
         }
     }
 
@@ -139,11 +156,13 @@ final class AIAssistant: ObservableObject {
     }
 
     private static func describe(tool: String, input: JSONValue) -> String {
-        switch tool {
-        case "seek_to": "⏩ 跳到 \(TimeFormat.clock(input["seconds"]?.doubleValue ?? 0))"
-        case "get_transcript": "🔎 查詢逐字稿 \(TimeFormat.clock(input["start_seconds"]?.doubleValue ?? 0))–\(TimeFormat.clock(input["end_seconds"]?.doubleValue ?? 0))"
-        case "get_bookmarks": "🔖 讀取書籤"
-        case "save_note_to_notion": "📤 存到 Notion：\(input["title"]?.stringValue ?? "")"
+        let l = AppSettings.aiLanguage
+        return switch tool {
+        case "seek_to": l.pick("⏩ 跳到 ", "⏩ Jumped to ") + TimeFormat.clock(input["seconds"]?.doubleValue ?? 0)
+        case "get_transcript": l.pick("🔎 查詢逐字稿 ", "🔎 Reading transcript ")
+            + "\(TimeFormat.clock(input["start_seconds"]?.doubleValue ?? 0))–\(TimeFormat.clock(input["end_seconds"]?.doubleValue ?? 0))"
+        case "get_bookmarks": l.pick("🔖 讀取書籤", "🔖 Reading bookmarks")
+        case "save_note_to_notion": l.pick("📤 存到 Notion：", "📤 Saving to Notion: ") + (input["title"]?.stringValue ?? "")
         default: "🔧 \(tool)"
         }
     }
@@ -151,7 +170,8 @@ final class AIAssistant: ObservableObject {
     // MARK: - Agent
 
     private func context() -> StudyContext {
-        StudyContext(title: player.title, duration: player.duration, transcript: player.transcript, bookmarks: player.bookmarks)
+        StudyContext(title: player.title, duration: player.duration, transcript: player.transcript, bookmarks: player.bookmarks,
+                     language: language)
     }
 
     private func tools() -> [AgentTool] {
@@ -225,11 +245,11 @@ final class AIAssistant: ObservableObject {
     func saveLastAnswerToNotion() {
         guard let markdown = lastAnswer, !isRunning else { return }
         isRunning = true
-        items.append(ChatItem(role: .status, text: "📤 正在存到 Notion…"))
+        items.append(ChatItem(role: .status, text: language.pick("📤 正在存到 Notion…", "📤 Saving to Notion…")))
         Task {
             do {
                 let url = try await saveToNotion(title: MarkdownToNotion.title(from: markdown) ?? player.title, markdown: markdown)
-                items.append(ChatItem(role: .status, text: "✅ 已存到 Notion"))
+                items.append(ChatItem(role: .status, text: language.pick("✅ 已存到 Notion", "✅ Saved to Notion")))
                 lastNotionURL = url
             } catch {
                 items.append(ChatItem(role: .status, text: "⚠️ \(error.localizedDescription)"))
@@ -253,7 +273,9 @@ final class AIAssistant: ObservableObject {
 
     static func sourceInfo(title: String, duration: Double) -> String {
         let date = Date().formatted(date: .abbreviated, time: .shortened)
-        return "影片：\(title)（\(TimeFormat.clock(duration))）· 由 Rush Video Player 於 \(date) 產生"
+        return AppSettings.aiLanguage.pick(
+            "影片：\(title)（\(TimeFormat.clock(duration))）· 由 Rush Video Player 於 \(date) 產生",
+            "Video: \(title) (\(TimeFormat.clock(duration))) · Generated by Rush Video Player on \(date)")
     }
 
     /// 一集看完時自動產生筆記並存到 Notion（設定中開啟時）。
@@ -268,7 +290,7 @@ final class AIAssistant: ObservableObject {
         Task {
             do {
                 // 用一段全新的對話產生筆記，不影響面板上的對話
-                let markdown = try await AppSettings.makeSession(context: context, tools: []).send(StudyPrompts.notes) { _ in }
+                let markdown = try await AppSettings.makeSession(context: context, tools: []).send(StudyPrompts.notes(context.language)) { _ in }
                 let client = NotionClient(token: AppSettings.notionToken)
                 let info = Self.sourceInfo(title: title, duration: duration)
                 let blocks = NotionClient.noteBlocks(markdown: markdown, sourceInfo: info, dropTitle: false)
@@ -283,9 +305,9 @@ final class AIAssistant: ObservableObject {
                         sourceInfo: info)
                 }
                 player.setNotionPage(url, for: video, hasNotes: true)
-                player.mpv.showText("📒 「\(title)」的學習筆記已存到 Notion", duration: 4000)
+                player.mpv.showText(context.language.pick("📒 「\(title)」的學習筆記已存到 Notion", "📒 Study notes for \"\(title)\" saved to Notion"), duration: 4000)
             } catch {
-                player.mpv.showText("⚠️ 自動筆記失敗：\(error.localizedDescription)", duration: 5000)
+                player.mpv.showText(context.language.pick("⚠️ 自動筆記失敗：", "⚠️ Auto notes failed: ") + error.localizedDescription, duration: 5000)
             }
         }
     }

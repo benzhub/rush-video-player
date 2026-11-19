@@ -6,6 +6,9 @@ struct AIPanel: View {
     @EnvironmentObject var player: PlayerModel
     @EnvironmentObject var screenshots: NotionScreenshots
     @Environment(\.openSettings) private var openSettings
+    @AppStorage(SettingKey.aiLanguage) private var languageRaw = AILanguage.traditionalChinese.rawValue
+
+    private var l: AILanguage { AILanguage(rawValue: languageRaw) ?? .traditionalChinese }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,25 +28,25 @@ struct AIPanel: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Label("AI 學習助手", systemImage: "sparkles").font(.headline)
+                Label(l.pick("AI 學習助手", "AI Study Assistant"), systemImage: "sparkles").font(.headline)
                 Spacer()
                 Button(assistant.provider.shortName) { openSettings() }
                     .buttonStyle(.borderless)
                     .font(.caption)
-                    .help("AI 來源（到設定中切換）")
+                    .help(l.pick("AI 來源（到設定中切換）", "AI source (change it in Settings)"))
                 Button { assistant.reset() } label: { Image(systemName: "arrow.counterclockwise") }
                     .buttonStyle(.borderless)
-                    .help("開始新對話")
+                    .help(l.pick("開始新對話", "Start a new conversation"))
                     .disabled(assistant.items.isEmpty)
             }
             Text(transcriptStatus).font(.caption).foregroundStyle(.secondary)
             HStack {
                 HStack {
-                    Button("摘要") { assistant.summarize() }
-                    Button("學習筆記") { assistant.makeNotes() }
-                    Button("存到 Notion") { assistant.saveLastAnswerToNotion() }
+                    Button(l.pick("摘要", "Summary")) { assistant.summarize() }
+                    Button(l.pick("學習筆記", "Study Notes")) { assistant.makeNotes() }
+                    Button(l.pick("存到 Notion", "Save to Notion")) { assistant.saveLastAnswerToNotion() }
                         .disabled(assistant.lastAnswer == nil || !assistant.hasNotion)
-                        .help(assistant.hasNotion ? "把最後一則回覆存成 Notion 頁面" : "請先到設定填入 Notion Token 和頁面")
+                        .help(assistant.hasNotion ? l.pick("把最後一則回覆存成 Notion 頁面", "Save the last reply as a Notion page") : notionHint)
                 }
                 .disabled(assistant.isRunning || player.currentURL == nil)
                 // 截圖不受 AI 是否在回覆中影響
@@ -52,15 +55,15 @@ struct AIPanel: View {
             .controlSize(.small)
             if player.currentURL != nil, !assistant.hasNotion {
                 HStack(spacing: 4) {
-                    Text("截圖、存到 Notion 需要先設定 Notion Token 和筆記頁面")
-                    Button("開啟設定") { openSettings() }.buttonStyle(.link)
+                    Text(l.pick("截圖、存到 Notion 需要先設定 Notion Token 和筆記頁面", "Screenshots and Save to Notion need a Notion token and notes page"))
+                    Button(l.pick("開啟設定", "Open Settings")) { openSettings() }.buttonStyle(.link)
                 }
                 .font(.caption).foregroundStyle(.secondary)
             } else if let status = screenshots.status {
                 HStack(spacing: 6) {
                     Text(status)
                     if let url = screenshots.lastPageURL, let link = URL(string: url) {
-                        Link("開啟頁面 ↗", destination: link)
+                        Link(l.pick("開啟頁面 ↗", "Open page ↗"), destination: link)
                     }
                 }
                 .font(.caption).foregroundStyle(.secondary)
@@ -72,24 +75,33 @@ struct AIPanel: View {
     /// 分割按鈕：主按鈕直接上傳，選單選「標註後上傳」
     private var screenshotButton: some View {
         Menu {
-            Button("標註後上傳…") { screenshots.capture(annotate: true) }
+            Button(l.pick("標註後上傳…", "Annotate and Upload…")) { screenshots.capture(annotate: true) }
         } label: {
-            Label("截圖", systemImage: "camera")
+            Label(l.pick("截圖", "Screenshot"), systemImage: "camera")
         } primaryAction: {
             screenshots.capture(annotate: false)
         }
         .fixedSize()
         .disabled(!screenshots.canCapture)
-        .help(assistant.hasNotion ? "截圖到 Notion（⇧⌘S）；選單可先用紅筆標註" : "請先到設定填入 Notion Token 和頁面")
+        .help(assistant.hasNotion ? l.pick("截圖到 Notion（⇧⌘S）；選單可先用紅筆標註", "Screenshot to Notion (⇧⌘S); use the menu to annotate with a red pen first") : notionHint)
+    }
+
+    private var notionHint: String {
+        l.pick("請先到設定填入 Notion Token 和頁面", "Enter a Notion token and page in Settings first")
     }
 
     private var transcriptStatus: String {
         let t = player.transcript
-        if player.currentURL == nil { return "開啟影片後即可使用" }
-        if t.isEmpty { return "⚠️ 目前沒有逐字稿（需要字幕）。內嵌字幕會在播放時逐步累積。" }
+        if player.currentURL == nil { return l.pick("開啟影片後即可使用", "Open a video to get started") }
+        if t.isEmpty {
+            return l.pick("⚠️ 目前沒有逐字稿（需要字幕）。內嵌字幕會在播放時逐步累積。",
+                          "⚠️ No transcript yet (subtitles needed). Embedded subtitles are collected as the video plays.")
+        }
         switch t.source {
-        case .file(let url): return "逐字稿：\(url.lastPathComponent)（\(t.cues.count) 句）"
-        case .accumulated: return "逐字稿：播放時累積（目前 \(t.cues.count) 句）"
+        case .file(let url): return l.pick("逐字稿：\(url.lastPathComponent)（\(t.cues.count) 句）",
+                                           "Transcript: \(url.lastPathComponent) (\(t.cues.count) lines)")
+        case .accumulated: return l.pick("逐字稿：播放時累積（目前 \(t.cues.count) 句）",
+                                         "Transcript: collected while playing (\(t.cues.count) lines so far)")
         }
     }
 
@@ -98,7 +110,8 @@ struct AIPanel: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     if assistant.items.isEmpty {
-                        Text("試試：\n• 這集在講什麼？\n• 帶我回到講 XXX 的地方\n• 解釋一下剛剛那段\n• 整理成筆記並存到 Notion")
+                        Text(l.pick("試試：\n• 這集在講什麼？\n• 帶我回到講 XXX 的地方\n• 解釋一下剛剛那段\n• 整理成筆記並存到 Notion",
+                                "Try:\n• What is this episode about?\n• Take me back to where XXX is discussed\n• Explain the part I just watched\n• Make notes and save them to Notion"))
                             .font(.callout).foregroundStyle(.secondary)
                     }
                     ForEach(assistant.items) { item in
@@ -106,7 +119,7 @@ struct AIPanel: View {
                     }
                     if assistant.isRunning { ProgressView().controlSize(.small) }
                     if let url = assistant.lastNotionURL, let link = URL(string: url) {
-                        Link("在 Notion 開啟 ↗", destination: link).font(.callout)
+                        Link(l.pick("在 Notion 開啟 ↗", "Open in Notion ↗"), destination: link).font(.callout)
                     }
                     Color.clear.frame(height: 1).id("bottom")
                 }
@@ -127,13 +140,13 @@ struct AIPanel: View {
 
     private var inputBar: some View {
         HStack(alignment: .bottom) {
-            TextField("問問題…", text: $assistant.input, axis: .vertical)
+            TextField(l.pick("問問題…", "Ask a question…"), text: $assistant.input, axis: .vertical)
                 .textFieldStyle(.plain)
                 .lineLimit(1...5)
                 .onSubmit { assistant.submitInput() }
             if assistant.isRunning {
                 Button { assistant.stop() } label: { Image(systemName: "stop.circle.fill") }
-                    .buttonStyle(.borderless).help("停止")
+                    .buttonStyle(.borderless).help(l.pick("停止", "Stop"))
             } else {
                 Button { assistant.submitInput() } label: { Image(systemName: "arrow.up.circle.fill") }
                     .buttonStyle(.borderless)
@@ -148,12 +161,13 @@ struct AIPanel: View {
         VStack(spacing: 12) {
             Spacer()
             Image(systemName: "key").font(.largeTitle)
-            Text("請先設定 AI 來源").font(.headline)
+            Text(l.pick("請先設定 AI 來源", "Set up an AI source first")).font(.headline)
             Text(AIAssistant.setupHint(for: assistant.provider))
                 .multilineTextAlignment(.center).font(.callout).foregroundStyle(.secondary)
-            Text("可以使用 Claude CLI、Codex CLI（沿用訂閱登入），或 Anthropic／OpenAI API Key。")
+            Text(l.pick("可以使用 Claude CLI、Codex CLI（沿用訂閱登入），或 Anthropic／OpenAI API Key。",
+                        "You can use Claude CLI or Codex CLI (with your subscription login), or an Anthropic/OpenAI API key."))
                 .multilineTextAlignment(.center).font(.caption).foregroundStyle(.secondary)
-            Button("開啟設定") { openSettings() }
+            Button(l.pick("開啟設定", "Open Settings")) { openSettings() }
             Spacer()
         }
         .padding(20)

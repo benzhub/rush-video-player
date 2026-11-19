@@ -86,6 +86,7 @@ struct AISettings: View {
     @AppStorage(SettingKey.openAIModel) private var openAIModel = OpenAIClient.defaultModel
     @AppStorage(SettingKey.claudeCLIModel) private var claudeCLIModel = ""
     @AppStorage(SettingKey.codexModel) private var codexModel = ""
+    @AppStorage(SettingKey.aiLanguage) private var language = AILanguage.traditionalChinese.rawValue
     @State private var anthropicKey = KeychainStore.get(.anthropicAPIKey) ?? ""
     @State private var openAIKey = KeychainStore.get(.openAIAPIKey) ?? ""
     @State private var availability: [AIProviderKind: Bool] = [:]
@@ -107,6 +108,14 @@ struct AISettings: View {
                     }
                 }
                 Text(description(provider.wrappedValue)).font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section {
+                Picker("回覆語言 Language", selection: $language) {
+                    ForEach(AILanguage.allCases, id: \.self) { Text($0.displayName).tag($0.rawValue) }
+                }
+                Text("摘要、學習筆記、問答、存到 Notion 的內容，以及 AI 面板的介面，都會使用這個語言。")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             Section {

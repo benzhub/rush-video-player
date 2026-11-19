@@ -135,7 +135,7 @@ public final class OpenAIAgent: StudySession {
     public init(client: OpenAIClient, context: StudyContext, tools: [AgentTool]) {
         self.client = client
         // instructions（含逐字稿）在整段對話中固定不變，OpenAI 會自動快取相同的前綴
-        self.instructions = StudyPrompts.instructions(withTools: true) + "\n" + StudyPrompts.material(for: context)
+        self.instructions = StudyPrompts.instructions(withTools: true, language: context.language) + "\n" + StudyPrompts.material(for: context)
         self.tools = tools
     }
 

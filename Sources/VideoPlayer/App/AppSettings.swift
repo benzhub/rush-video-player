@@ -13,6 +13,7 @@ enum SettingKey {
     static let claudeCLIModel = "claudeCLIModel"
     static let codexModel = "codexModel"
     static let aiEffort = "aiEffort"
+    static let aiLanguage = "aiLanguage"
     static let notionParent = "notionParent"
     static let autoNotion = "autoNotion"
 }
@@ -32,6 +33,7 @@ enum AppSettings {
             SettingKey.claudeCLIModel: "",
             SettingKey.codexModel: "",
             SettingKey.aiEffort: "medium",
+            SettingKey.aiLanguage: AILanguage.traditionalChinese.rawValue,
             SettingKey.notionParent: "",
             SettingKey.autoNotion: false,
         ])
@@ -45,6 +47,9 @@ enum AppSettings {
     }
     static var notionParent: String { defaults.string(forKey: SettingKey.notionParent) ?? "" }
     static var autoNotion: Bool { defaults.bool(forKey: SettingKey.autoNotion) }
+    static var aiLanguage: AILanguage {
+        AILanguage(rawValue: defaults.string(forKey: SettingKey.aiLanguage) ?? "") ?? .traditionalChinese
+    }
 
     /// 優先使用 Keychain，其次是環境變數
     static var anthropicAPIKey: String {

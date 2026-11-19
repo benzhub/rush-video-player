@@ -75,16 +75,30 @@ public struct StudyContext: Sendable {
 }
 
 public enum StudyPrompts {
-    static let instructions = """
+    static let baseInstructions = """
     你是內建在影片播放器裡的學習助手。使用者正在看一部影片（課程、演講、教學或影集），想用你加速理解與整理內容。
 
     - 一律使用繁體中文（台灣用語）回答，專有名詞可以附上原文。
     - 回答要根據逐字稿；逐字稿沒有提到的內容，請明確說是你的補充，不要假裝影片有講。
     - 提到影片內容時附上時間戳，格式為 [m:ss] 或 [h:mm:ss]，方便使用者跳轉。
     - 使用 Markdown：標題、條列、粗體。不要用表格（側邊欄很窄）。
+    """
+
+    static let toolInstructions = """
     - 使用者想回到某段內容時，用 seek_to 工具直接跳過去。
     - 只有在使用者要求時，才用 save_note_to_notion 存到 Notion。
     """
+
+    /// CLI 來源沒有 App 工具，跳轉改用文字指令，由 App 解析執行
+    static let directiveInstructions = """
+    - 你沒有任何工具，也不要讀寫檔案或執行指令，只根據下面的逐字稿回答。
+    - 使用者想回到、重看或找到某段內容時，在回覆最後單獨一行輸出 <seek>秒數</seek>（例如 <seek>95</seek>），播放器會自動跳過去。
+    - 使用者要存到 Notion 時，請他按面板上的「存到 Notion」按鈕。
+    """
+
+    public static func instructions(withTools: Bool) -> String {
+        baseInstructions + (withTools ? toolInstructions : directiveInstructions)
+    }
 
     public static let summary = """
     請幫我摘要這部影片：
@@ -104,9 +118,10 @@ public enum StudyPrompts {
     只輸出筆記本身，不要加開場白或結語。
     """
 
-    static func system(for context: StudyContext) -> [JSONValue] {
+    /// 影片資訊與逐字稿
+    public static func material(for context: StudyContext) -> String {
         let transcript = context.transcript.isEmpty ? "（目前沒有逐字稿：這部影片沒有可讀取的字幕）" : context.transcript.formatted()
-        let material = """
+        return """
         影片：\(context.title)
         長度：\(TimeFormat.clock(context.duration))
         \(context.transcriptNote)
@@ -114,22 +129,26 @@ public enum StudyPrompts {
         \(transcript)
         </transcript>
         """
-        return [
-            ["type": "text", "text": .string(instructions)],
+    }
+
+    /// 沒有工具的來源使用的完整 system prompt
+    public static func plainSystemPrompt(for context: StudyContext) -> String {
+        instructions(withTools: false) + "\n" + material(for: context)
+    }
+
+    static func system(for context: StudyContext) -> [JSONValue] {
+        [
+            ["type": "text", "text": .string(instructions(withTools: true))],
             // 逐字稿很長且在同一段對話中固定不變，放在 cache breakpoint 前，後續提問只付快取價格
-            ["type": "text", "text": .string(material), "cache_control": ["type": "ephemeral"]],
+            ["type": "text", "text": .string(material(for: context)), "cache_control": ["type": "ephemeral"]],
         ]
     }
 }
 
 /// 學習助手 Agent：手動 tool-use 迴圈，對話歷史只會往後加（不修改先前的回合）
 @MainActor
-public final class StudyAgent {
-    public enum Event: Sendable {
-        case text(String)
-        case toolCall(name: String, input: JSONValue)
-    }
-
+public final class StudyAgent: StudySession {
+    public let supportsTools = true
     public private(set) var messages: [JSONValue] = []
     private let client: ClaudeClient
     private let system: [JSONValue]
@@ -143,7 +162,7 @@ public final class StudyAgent {
     }
 
     /// 送出一則使用者訊息，執行到 Claude 不再呼叫工具為止，回傳最後的文字
-    public func send(_ text: String, onEvent: @escaping @Sendable (Event) -> Void) async throws -> String {
+    public func send(_ text: String, onEvent: @escaping @Sendable (AIEvent) -> Void) async throws -> String {
         messages.append(["role": "user", "content": .string(text)])
         let definitions = tools.map(\.definition)
         var finalText = ""
@@ -189,11 +208,4 @@ public final class StudyAgent {
         }
     }
 
-    /// 一次性產生學習筆記（不使用工具），供「看完自動存到 Notion」使用
-    public static func generateNotes(client: ClaudeClient, context: StudyContext) async throws -> String {
-        let response = try await client.stream(
-            system: StudyPrompts.system(for: context),
-            messages: [["role": "user", "content": .string(StudyPrompts.notes)]])
-        return response.text
-    }
 }

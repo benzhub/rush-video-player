@@ -1,6 +1,109 @@
-# macOS Video Player
+# Rush Video Player
 
-一個好用的 macOS 影片播放器：
+一個好用的 macOS 影片播放器，專門解決兩個痛點，並內建 AI 學習助手：
 
-- 自動載入同資料夾內的字幕檔（不用再手動匯入）
-- 播放清單 / 自動播放下一集
+- **字幕自動載入**：打開影片，同資料夾的字幕自動找到、自動選語言，Big5／GBK 編碼也不會亂碼
+- **播放清單 + 自動連播**：打開任一集，同資料夾的影片自動排成清單（EP2 排在 EP10 前面），看完自動播下一集
+- **AI 學習助手**：根據字幕整理摘要、學習筆記、回答問題，還能跳到影片指定段落；筆記可以自動存到 Notion
+
+播放核心使用 [libmpv](https://mpv.io)（透過 [MPVKit](https://github.com/mpvkit/MPVKit)），支援 MKV / MP4 / AVI / WebM 等幾乎所有格式，並使用 VideoToolbox 硬體解碼。
+
+## 安裝
+
+需要 macOS 14 以上和 Swift 6（安裝 Xcode 或 Command Line Tools：`xcode-select --install`）。
+
+```bash
+./scripts/bundle.sh            # 產生 build/Rush Video Player.app
+./scripts/bundle.sh --install  # 同時安裝到 /Applications
+```
+
+第一次建置時會下載 libmpv / FFmpeg 的預先編譯檔（數百 MB），需要一些時間。
+
+開發時：
+
+```bash
+swift run VideoPlayer /path/to/video.mkv   # 直接執行
+./scripts/test.sh                          # 單元測試（只有 Command Line Tools 時也能跑）
+```
+
+## 字幕自動載入規則
+
+打開 `影片.mkv` 時會尋找：
+
+| 位置 | 例子 |
+|---|---|
+| 同名字幕 | `影片.srt`、`影片.ass` |
+| 同名＋語言標記 | `影片.zh-TW.srt`、`影片.chs.ass`、`影片.繁體.srt`、`影片.en.srt` |
+| 子資料夾 | `Subs/`、`Subtitles/`、`字幕/`，包含 `Subs/影片/2_English.srt` 結構 |
+| 同集數 | 影片 `[Group] Show - S01E02.mkv` ↔ 字幕 `Show.S01E02.srt` |
+| 資料夾只有一部影片 | 該資料夾內的任何字幕 |
+| 內嵌字幕 | MKV 內的字幕軌 |
+
+所有字幕都會載入，並依「設定 → 字幕」的語言優先順序（預設 繁中 > 簡中 > 英文）自動選一個。沒有語言標記時，會從內容判斷繁體或簡體。手動切換過的字幕會被記住。
+
+## 快捷鍵
+
+| 鍵 | 功能 |
+|---|---|
+| 空白鍵 | 播放／暫停 |
+| ← / → | 倒轉／快轉 5 秒（加 ⇧：60 秒） |
+| , / . | 倒轉／快轉 1 秒 |
+| ↑ / ↓ | 音量 |
+| N / P | 下一集／上一集 |
+| F 或雙擊畫面 | 全螢幕 |
+| M | 靜音 |
+| B | 在目前時間加書籤（自動附上當下字幕） |
+| [ / ] / \ | 字幕提早／延後 0.1 秒／重設 |
+| ⌘= / ⌘- | 字幕放大／縮小 |
+| ⌘[ / ⌘] / ⌘0 | 播放速度減慢／加快／正常 |
+| ⌘L | 播放清單與書籤 |
+| ⌘J | AI 學習助手 |
+| ⌥⌘P | 子母畫面（右下角置頂小視窗） |
+| ⇧⌘S | 截圖（存到桌面） |
+| ⌘O / ⇧⌘O | 開啟／加入播放清單 |
+
+拖曳影片或資料夾到視窗即可開啟；拖曳字幕檔即可載入字幕。
+
+## AI 學習助手
+
+1. 「設定 → AI」填入 [Anthropic API Key](https://console.anthropic.com/)（存在 macOS 鑰匙圈，也可以使用環境變數 `ANTHROPIC_API_KEY`）
+2. 播放有字幕的影片，按 ⌘J 開啟助手
+3. 可以按「摘要」或「學習筆記」，或直接問問題，例如：
+   - 這集在講什麼？
+   - 帶我回到講 XXX 的地方（AI 會直接跳轉影片）
+   - 解釋一下剛剛那段
+   - 根據我的書籤整理重點並存到 Notion
+
+逐字稿來自外部字幕檔；如果只有內嵌字幕，會在播放時逐步累積。預設模型為 Claude Opus 5.5，可以在設定中切換。
+
+### 存到 Notion
+
+1. 到 [Notion Integrations](https://www.notion.so/profile/integrations) 建立 Internal Integration，複製 Token
+2. 在要存放筆記的頁面（或資料庫）右上角「⋯ → 連線」加入這個 Integration
+3. 「設定 → Notion」貼上 Token 和頁面網址，按「測試連線」
+4. 可以開啟「看完一集時自動產生學習筆記並存到 Notion」
+
+## 專案結構
+
+```
+Sources/
+  VideoPlayerCore/     # 純邏輯，可單元測試
+    Subtitles/         # 字幕搜尋、語言判斷、編碼偵測、字幕解析、逐字稿
+    Playlist/          # 資料夾掃描、自然排序
+    Persistence/       # 播放進度／書籤（JSON）、Keychain
+    AI/                # Claude API 串流客戶端、學習助手 Agent
+    Notion/            # Notion API、Markdown → Notion blocks
+  VideoPlayer/         # SwiftUI App
+    Player/            # libmpv 包裝、播放狀態
+    AI/                # AI 助手狀態與工具
+    UI/                # 畫面
+    App/               # App 進入點、選單、快捷鍵、設定
+Tests/                 # swift-testing 單元測試
+scripts/               # 打包、測試、圖示產生
+```
+
+播放進度與書籤存在 `~/Library/Application Support/RushVideoPlayer/playback.json`。
+
+## 授權
+
+播放核心 libmpv / FFmpeg 為 LGPL 授權（使用 MPVKit 的 LGPL 版本）。

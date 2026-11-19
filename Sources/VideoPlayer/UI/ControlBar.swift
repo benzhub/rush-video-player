@@ -79,8 +79,11 @@ struct ControlBar: View {
         } label: {
             Text("\(player.speed.formatted(.number.precision(.fractionLength(0...2))))x")
                 .font(.caption.monospacedDigit())
+                .foregroundStyle(.white)
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
         .fixedSize()
         .help("播放速度 (⌘[ / ⌘])")
     }
@@ -139,10 +142,16 @@ struct SubtitleMenu: View {
                 }
             }
         } label: {
-            Image(systemName: "captions.bubble")
+            Image(systemName: player.subtitleTracks.contains(where: \.selected) ? "captions.bubble.fill" : "captions.bubble")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(.white)
+                .frame(minWidth: 22, minHeight: 22)
+                .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
         .fixedSize()
-        .help("字幕與音軌")
+        .help("字幕與音軌（S 開關字幕）")
     }
 }

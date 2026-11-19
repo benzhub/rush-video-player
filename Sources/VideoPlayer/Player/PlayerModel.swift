@@ -45,6 +45,7 @@ final class PlayerModel: ObservableObject, MPVControllerDelegate {
     private var lastProgressWrite = Date.distantPast
     private var lastDiskSave = Date.distantPast
     private var finishedCurrent = false
+    private var lastSubtitleID: Int?
 
     /// `RVP_DEBUG=1` 時把重要狀態輸出到 stderr，方便除錯
     private static let debug = ProcessInfo.processInfo.environment["RVP_DEBUG"] != nil
@@ -218,6 +219,20 @@ final class PlayerModel: ObservableObject, MPVControllerDelegate {
                     r.subtitle = .off
                 }
             }
+        }
+    }
+
+    /// 開／關字幕：關閉時記住原本的軌，再開時選回它（找不到就選第一條）
+    func toggleSubtitles() {
+        if let current = subtitleTracks.first(where: \.selected) {
+            lastSubtitleID = current.id
+            selectSubtitle(nil)
+            mpv.showText("字幕：關閉")
+        } else if let track = subtitleTracks.first(where: { $0.id == lastSubtitleID }) ?? subtitleTracks.first {
+            selectSubtitle(track)
+            mpv.showText("字幕：\(track.displayName)")
+        } else {
+            mpv.showText("沒有字幕")
         }
     }
 

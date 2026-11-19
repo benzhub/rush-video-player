@@ -64,6 +64,18 @@ struct PlayerCommands: Commands {
                 .keyboardShortcut("p", modifiers: [.command, .option])
         }
         CommandMenu("字幕") {
+            Button("開啟／關閉字幕 (S)") { player.toggleSubtitles() }
+                .disabled(player.subtitleTracks.isEmpty)
+            Divider()
+            Toggle("關閉字幕", isOn: Binding(
+                get: { !player.subtitleTracks.contains(where: \.selected) },
+                set: { if $0 { player.selectSubtitle(nil) } }))
+            ForEach(player.subtitleTracks) { track in
+                Toggle(track.displayName, isOn: Binding(
+                    get: { track.selected },
+                    set: { if $0 { player.selectSubtitle(track) } }))
+            }
+            Divider()
             Button("載入字幕檔…") { player.showSubtitleOpenPanel() }
             Divider()
             Button("放大字幕") { player.changeSubScale(by: 0.1) }.keyboardShortcut("=")

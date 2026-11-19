@@ -27,6 +27,7 @@ enum KeyHandler {
             case "p": player.playPrevious()
             case "m": player.toggleMute()
             case "b": player.addBookmark()
+            case "s": player.toggleSubtitles()
             case "[": player.changeSubDelay(by: -0.1)
             case "]": player.changeSubDelay(by: 0.1)
             case "\\": player.changeSubDelay(by: 0)
